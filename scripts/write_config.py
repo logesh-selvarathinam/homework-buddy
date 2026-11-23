@@ -3,9 +3,12 @@ import os
 import pathlib
 import sys
 
-url, key = os.environ.get("HB_SUPABASE_URL"), os.environ.get("HB_SUPABASE_ANON_KEY")
+url = (os.environ.get("HB_SUPABASE_URL") or "").strip()
+key = (os.environ.get("HB_SUPABASE_ANON_KEY") or "").strip()
 if not url or not key:
-    sys.exit("Set the SUPABASE_URL and SUPABASE_ANON_KEY repository secrets first.")
+    sys.exit("::error::Secret SUPABASE_URL or SUPABASE_ANON_KEY is empty or missing.")
+if not url.startswith("https://"):
+    sys.exit("::error::SUPABASE_URL must look like https://xxxx.supabase.co")
 
 path = pathlib.Path(__file__).resolve().parent.parent / "src" / "hb" / "config.py"
 text = path.read_text(encoding="utf-8")
