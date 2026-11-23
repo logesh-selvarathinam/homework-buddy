@@ -9,6 +9,14 @@ from ..api import ApiError
 from . import common as ui
 
 
+def _describe(ex: Exception) -> str:
+    """Readable reason for an unexpected error (shown on screen)."""
+    import requests
+    if isinstance(ex, requests.ConnectionError):
+        return f"Can't reach the server. Check internet. ({type(ex).__name__}: {str(ex)[:150]})"
+    return f"Something went wrong: {type(ex).__name__}: {str(ex)[:200]}"
+
+
 def _busy(btn: ft.FilledButton, busy: bool):
     btn.disabled = busy
     ui.safe_update(btn)
@@ -17,7 +25,7 @@ def _busy(btn: ft.FilledButton, busy: bool):
 def login_view(app) -> ft.Control:
     email = ui.field("Email", keyboard_type=ft.KeyboardType.EMAIL, autofocus=True)
     password = ui.field("Password", password=True, can_reveal_password=True)
-    msg = ft.Text("", color="#B91C1C", size=13)
+    msg = ft.Text("", color="#B91C1C", size=13, selectable=True)
 
     async def submit(create: bool):
         msg.value = ""
@@ -41,8 +49,8 @@ def login_view(app) -> ft.Control:
         except ApiError as e:
             msg.value = str(e)
             msg.update()
-        except Exception:
-            msg.value = "No internet connection. Connect and try again."
+        except Exception as ex:
+            msg.value = _describe(ex)
             msg.update()
         finally:
             _busy(sign_in_btn, False)
@@ -78,7 +86,7 @@ def family_setup_view(app) -> ft.Control:
     your_name = ui.field("Your name (shown to the family)", value=(app.api.email or "").split("@")[0])
     family_name = ui.field("Family name", value="Our family")
     code = ui.field("6-digit family code", keyboard_type=ft.KeyboardType.NUMBER, max_length=6)
-    msg = ft.Text("", color="#B91C1C", size=13)
+    msg = ft.Text("", color="#B91C1C", size=13, selectable=True)
 
     def fail(text):
         msg.value = text
@@ -92,8 +100,8 @@ def family_setup_view(app) -> ft.Control:
                 app.sync.create_family, family_name.value.strip() or "Our family", your_name.value.strip())
         except ApiError as ex:
             return fail(str(ex))
-        except Exception:
-            return fail("No internet connection.")
+        except Exception as ex:
+            return fail(_describe(ex))
         app.toast(f"Family created. Code: {join_code}")
         app.after_sign_in()
 
@@ -106,8 +114,8 @@ def family_setup_view(app) -> ft.Control:
             await asyncio.to_thread(app.sync.join_family, code.value, your_name.value.strip())
         except ApiError as ex:
             return fail(str(ex))
-        except Exception:
-            return fail("No internet connection.")
+        except Exception as ex:
+            return fail(_describe(ex))
         app.toast("Joined! Loading your family's homework…")
         app.after_sign_in()
 
