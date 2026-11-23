@@ -71,7 +71,7 @@ jobs:
           FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ env.KS_PW_CLEAN }}
           FLET_ANDROID_SIGNING_KEY_ALIAS: upload
         run: |
-          flet build apk --build-version "$VERSION" --build-number "$BUILD" --no-rich-output
+          flet build apk --yes --build-version "$VERSION" --build-number "$BUILD" --no-rich-output
           cp "$(ls build/apk/*.apk | head -1)" "homeworkbuddy-$VERSION-$BUILD.apk"
 
       - uses: actions/upload-artifact@v4
