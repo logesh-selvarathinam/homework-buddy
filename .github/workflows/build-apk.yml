@@ -17,6 +17,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: write   # to create the GitHub Release
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -83,38 +86,30 @@ jobs:
           name: homeworkbuddy-apk
           path: homeworkbuddy-*.apk
 
-      - name: Publish APK + latest.json for in-app update
+      - name: Publish GitHub Release (in-app update)
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GH_TOKEN: ${{ github.token }}
           NOTES: ${{ github.event.inputs.notes }}
           MANDATORY: ${{ github.event.inputs.mandatory }}
         run: |
-          if [ -z "$KEY" ]; then
-            echo "SUPABASE_SERVICE_ROLE_KEY not set: skipping in-app update publishing."
-            exit 0
-          fi
-          SUPABASE_URL="$(printf '%s' "$SUPABASE_URL" | tr -d ' \r\n\t')"
-          SUPABASE_URL="${SUPABASE_URL%/}"
-          KEY="$(printf '%s' "$KEY" | tr -d ' \r\n\t')"
-          export SUPABASE_URL
+          TAG="v$VERSION-b$BUILD"
           NAME="homeworkbuddy-$VERSION-$BUILD.apk"
-          APK="$NAME"
-          curl -sS --fail-with-body -X POST "$SUPABASE_URL/storage/v1/object/app-updates/$NAME" \
-            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" -H "x-upsert: true" \
-            -H "Content-Type: application/vnd.android.package-archive" --data-binary @"$APK"
           [ -n "$NOTES" ] || NOTES="$(git log -1 --pretty=%s)"
+          export TAG NAME NOTES
           python - <<'EOF'
           import json, os
+          repo = os.environ["GITHUB_REPOSITORY"]
           json.dump({
               "version": os.environ["VERSION"],
               "build": int(os.environ["BUILD"]),
-              "apk_url": f'{os.environ["SUPABASE_URL"]}/storage/v1/object/public/app-updates/homeworkbuddy-{os.environ["VERSION"]}-{os.environ["BUILD"]}.apk',
-              "notes": os.environ.get("NOTES", ""),
+              "apk_url": f'https://github.com/{repo}/releases/download/{os.environ["TAG"]}/{os.environ["NAME"]}',
+              "notes": os.environ["NOTES"],
               "mandatory": os.environ.get("MANDATORY") == "true",
           }, open("latest.json", "w"), indent=2)
           EOF
           cat latest.json
-          curl -sS --fail-with-body -X POST "$SUPABASE_URL/storage/v1/object/app-updates/latest.json" \
-            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" -H "x-upsert: true" \
-            -H "cache-control: max-age=0" -H "Content-Type: application/json" --data-binary @latest.json
+          V7=$(ls build/apk/*armeabi-v7a*.apk 2>/dev/null | head -1)
+          EXTRA=""
+          if [ -n "$V7" ]; then cp "$V7" "homeworkbuddy-$VERSION-$BUILD-older-phones.apk"; EXTRA="homeworkbuddy-$VERSION-$BUILD-older-phones.apk"; fi
+          gh release create "$TAG" "$NAME" latest.json $EXTRA \
+            --target "$GITHUB_SHA" --title "HomeworkBuddy $VERSION (build $BUILD)" --notes "$NOTES" --latest

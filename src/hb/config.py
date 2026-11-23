@@ -10,8 +10,10 @@ SUPABASE_URL = os.getenv("HB_SUPABASE_URL", "https://YOUR-PROJECT.supabase.co")
 SUPABASE_ANON_KEY = os.getenv("HB_SUPABASE_ANON_KEY", "YOUR-ANON-KEY")
 
 # In-app update: the app reads this file to see if a newer APK exists.
-# The GitHub build workflow uploads it to the public "app-updates" bucket.
-UPDATE_MANIFEST_URL = f"{SUPABASE_URL}/storage/v1/object/public/app-updates/latest.json"
+# The GitHub build workflow attaches it to each GitHub Release of this repo
+# (the repo must be public so phones can download it).
+GITHUB_REPO = "logesh-selvarathinam/homework-buddy"
+UPDATE_MANIFEST_URL = f"https://github.com/{GITHUB_REPO}/releases/latest/download/latest.json"
 
 IMAGE_BUCKET = "homework-images"
 

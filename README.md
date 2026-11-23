@@ -37,22 +37,20 @@ Back up `upload.jks` and its password. If they are lost, phones must uninstall a
 
 ## 3. GitHub (once)
 
-Create a **private** repo, push this folder, then **Settings → Secrets and variables → Actions**
+Create a **public** repo (phones download updates from its Releases; no keys are in the code), push this folder, then **Settings → Secrets and variables → Actions**
 and add:
 
 | Secret | Value |
 |---|---|
 | `SUPABASE_URL` | Project URL |
 | `SUPABASE_ANON_KEY` | anon public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | service_role key (only used by the build, never in the app) |
 | `ANDROID_KEYSTORE_BASE64` | contents of `keystore-base64.txt` |
 | `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
 
 ## 4. Build and install
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git push origin main:release
 ```
 
 The **Build APK and publish update** workflow runs (the first build takes ~20 minutes).
@@ -66,18 +64,20 @@ other phones **Join family** with the code from Family tab → add the children 
 
 Change the code, then push a higher version tag:
 
+Raise `version` in `pyproject.toml` (e.g. 1.0.1), then:
+
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git push origin main:release
 ```
 
 Or **Actions → Build APK and publish update → Run workflow**, where you can type the
 "What's new" text and tick **Force everyone to update**.
 
-The workflow uploads the APK and `latest.json` to the public `app-updates` bucket.
-Each phone checks it when the app opens (and from **Family → Check for updates**), shows the
+The workflow creates a GitHub Release with the APK and `latest.json`
+(`homeworkbuddy-…-older-phones.apk` is for old 32-bit phones only).
+Each phone checks the latest release when the app opens (and from **Family → Check for updates**), shows the
 popup, and **Download & install** downloads the APK; tapping the downloaded file installs it
-over the old version with all data kept. Old APKs in the bucket can be deleted to save space.
+over the old version with all data kept.
 
 ## Run on your PC (testing)
 
