@@ -1,10 +1,12 @@
 name: Build APK and publish update
 
-# Run it: push a tag like v1.0.1  (git tag v1.0.1 && git push origin v1.0.1)
-# or Actions tab → "Build APK and publish update" → Run workflow.
+# Run it: Actions tab → "Build APK and publish update" → Run workflow,
+# or push to the `release` branch, or push a tag like v1.0.1.
+# The version comes from pyproject.toml (or from the tag).
 on:
   push:
     tags: ["v*"]
+    branches: ["release"]
   workflow_dispatch:
     inputs:
       notes:
