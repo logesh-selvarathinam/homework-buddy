@@ -25,7 +25,7 @@ copyright = "Copyright (C) 2026 Nandhini"
 path = "src"
 
 [tool.flet.android]
-split_per_abi = false
+split_per_abi = true  # separate, smaller APK per phone type (arm64 is the one to install)
 
 [tool.flet.android.permission]
 "android.permission.INTERNET" = true
