@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+build/
+local_data/
+.venv/
+*.jks
+keystore-base64.txt
+.pytest_cache/

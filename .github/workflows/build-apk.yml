@@ -1,0 +1,96 @@
+name: Build APK and publish update
+
+# Run it: push a tag like v1.0.1  (git tag v1.0.1 && git push origin v1.0.1)
+# or Actions tab → "Build APK and publish update" → Run workflow.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "What's new (shown in the update popup)"
+        required: false
+      mandatory:
+        description: "Force everyone to update"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Work out version
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          if ! [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            V=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "BUILD=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "Building $V (build ${{ github.run_number }})"
+
+      - name: Put Supabase settings into the app
+        env:
+          HB_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          HB_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: python scripts/write_config.py
+
+      - name: Signing key (the same key every build, so updates install)
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/upload.jks"
+
+      - name: Install Flet
+        run: pip install "flet-cli==1.1.3" "flet==1.1.3"
+
+      - name: Build APK
+        env:
+          FLET_ANDROID_SIGNING_KEY_STORE: ${{ runner.temp }}/upload.jks
+          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FLET_ANDROID_SIGNING_KEY_ALIAS: upload
+        run: |
+          flet build apk --build-version "$VERSION" --build-number "$BUILD" --no-rich-output
+          cp "$(ls build/apk/*.apk | head -1)" "homeworkbuddy-$VERSION-$BUILD.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homeworkbuddy-apk
+          path: homeworkbuddy-*.apk
+
+      - name: Publish APK + latest.json for in-app update
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NOTES: ${{ github.event.inputs.notes }}
+          MANDATORY: ${{ github.event.inputs.mandatory }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY not set: skipping in-app update publishing."
+            exit 0
+          fi
+          NAME="homeworkbuddy-$VERSION-$BUILD.apk"
+          APK="$NAME"
+          curl -fsS -X POST "$SUPABASE_URL/storage/v1/object/app-updates/$NAME" \
+            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" -H "x-upsert: true" \
+            -H "Content-Type: application/vnd.android.package-archive" --data-binary @"$APK"
+          [ -n "$NOTES" ] || NOTES="$(git log -1 --pretty=%s)"
+          python - <<'EOF'
+          import json, os
+          json.dump({
+              "version": os.environ["VERSION"],
+              "build": int(os.environ["BUILD"]),
+              "apk_url": f'{os.environ["SUPABASE_URL"]}/storage/v1/object/public/app-updates/homeworkbuddy-{os.environ["VERSION"]}-{os.environ["BUILD"]}.apk',
+              "notes": os.environ.get("NOTES", ""),
+              "mandatory": os.environ.get("MANDATORY") == "true",
+          }, open("latest.json", "w"), indent=2)
+          EOF
+          cat latest.json
+          curl -fsS -X POST "$SUPABASE_URL/storage/v1/object/app-updates/latest.json" \
+            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" -H "x-upsert: true" \
+            -H "cache-control: max-age=0" -H "Content-Type: application/json" --data-binary @latest.json

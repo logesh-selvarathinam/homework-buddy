@@ -1,0 +1,33 @@
+[project]
+name = "homeworkbuddy"
+version = "1.0.0"
+description = "Track your children's homework on every phone in the family"
+requires-python = ">=3.10"
+dependencies = [
+  "flet==1.1.3",
+  "flet-notifications==1.1.3",
+  "requests>=2.31",
+  "pillow>=10",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "flet-cli==1.1.3", "flet-desktop==1.1.3"]
+
+[tool.flet]
+# org + project name = Android package id (com.nandhini.homeworkbuddy).
+# Never change it after phones have installed the app, or updates won't install.
+org = "com.nandhini"
+product = "HomeworkBuddy"
+company = "Nandhini"
+copyright = "Copyright (C) 2026 Nandhini"
+
+[tool.flet.app]
+path = "src"
+
+[tool.flet.android]
+split_per_abi = false
+
+[tool.flet.android.permission]
+"android.permission.INTERNET" = true
+"android.permission.POST_NOTIFICATIONS" = true
+"android.permission.RECEIVE_BOOT_COMPLETED" = true
