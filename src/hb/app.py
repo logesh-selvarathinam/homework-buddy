@@ -42,17 +42,7 @@ class App:
         self.app_version, self.app_build = "0.0.0", 0
         self._stack: list = []        # sub-screens opened on top of a tab
 
-        self.body = ft.Container(expand=True)
-        self.nav = ft.NavigationBar(
-            selected_index=0, on_change=lambda e: self.go_tab(e.control.selected_index),
-            bgcolor=ui.CARD, indicator_color=ui.ACCENT_SOFT,
-            destinations=[
-                ft.NavigationBarDestination(icon=ft.Icons.HOME_OUTLINED, selected_icon=ft.Icons.HOME, label="Home"),
-                ft.NavigationBarDestination(icon=ft.Icons.ASSIGNMENT_TURNED_IN_OUTLINED, label="Exams"),
-                ft.NavigationBarDestination(icon=ft.Icons.INSIGHTS, label="Summary"),
-                ft.NavigationBarDestination(icon=ft.Icons.GROUP_OUTLINED, label="Family"),
-            ],
-        )
+        self._render_lock = False
 
     # ---------------------------------------------------------------- start
     async def start(self):
@@ -63,7 +53,6 @@ class App:
         p.theme_mode = ft.ThemeMode.LIGHT
         p.theme = ft.Theme(color_scheme_seed=ui.ACCENT)
         p.on_view_pop = lambda e: self.back()
-        p.add(ft.SafeArea(content=self.body, expand=True))
         try:
             info = await p.get_package_info()
             self.app_version, self.app_build = info.version, info.build_number
@@ -79,48 +68,82 @@ class App:
         return bool(self.api.session and self.sync.family_id)
 
     # ----------------------------------------------------------- navigation
-    def show_current(self):
+    # Android's Back button pops the top View. Every open screen is its own
+    # View (Home at the bottom, then another tab, then sub-screens), so Back
+    # closes one screen at a time and only leaves the app from Home.
+    def _nav_bar(self) -> ft.NavigationBar:
+        return ft.NavigationBar(
+            selected_index=self.tab, on_change=lambda e: self.go_tab(e.control.selected_index),
+            bgcolor=ui.CARD, indicator_color=ui.ACCENT_SOFT,
+            destinations=[
+                ft.NavigationBarDestination(icon=ft.Icons.HOME_OUTLINED, selected_icon=ft.Icons.HOME, label="Home"),
+                ft.NavigationBarDestination(icon=ft.Icons.ASSIGNMENT_TURNED_IN_OUTLINED, label="Exams"),
+                ft.NavigationBarDestination(icon=ft.Icons.INSIGHTS, label="Summary"),
+                ft.NavigationBarDestination(icon=ft.Icons.GROUP_OUTLINED, label="Family"),
+            ],
+        )
+
+    def _layers(self) -> list[tuple]:
+        """(builder, is_tab) from the bottom of the stack to the top."""
         from .ui import auth, exams, family, home, summary
-        self._stack.clear()
         if not self.api.session:
-            self._set_body(auth.login_view(self), nav=False)
-        elif not self.sync.family_id:
-            self._set_body(auth.family_setup_view(self), nav=False)
-        else:
-            view = [home.view, exams.view, summary.view, family.view][self.tab](self)
-            self._set_body(view, nav=True)
+            return [(lambda: auth.login_view(self), False)]
+        if not self.sync.family_id:
+            return [(lambda: auth.family_setup_view(self), False)]
+        tabs = [home.view, exams.view, summary.view, family.view]
+        layers = [(lambda: home.view(self), True)]
+        if self.tab:
+            layers.append((lambda t=tabs[self.tab]: t(self), True))
+        layers += [(b, False) for b in self._stack]
+        return layers
+
+    def render(self):
+        views = []
+        layers = self._layers()
+        for i, (build, is_tab) in enumerate(layers):
+            top = i == len(layers) - 1
+            # Lower layers are only seen during the back animation: build the one
+            # right under the top for a smooth transition, keep the rest empty.
+            if top or i == len(layers) - 2:
+                control = build()
+            else:
+                control = ft.Container()
+            fab = getattr(control, "data", None)
+            views.append(ft.View(
+                route="/" if i == 0 else f"/{i}",
+                controls=[ft.SafeArea(content=control, expand=True)],
+                padding=0, spacing=0, bgcolor=ui.BG,
+                navigation_bar=self._nav_bar() if is_tab else None,
+                floating_action_button=fab if is_tab and isinstance(fab, ft.FloatingActionButton) else None,
+            ))
+        self.page.views.clear()
+        self.page.views.extend(views)
+        self.page.update()
+
+    def show_current(self):
+        self._stack.clear()
+        self.render()
 
     def go_tab(self, index: int):
         self.tab = index
-        self.nav.selected_index = index
-        self.show_current()
+        self._stack.clear()
+        self.render()
 
     def open(self, build):
         """Open a sub-screen. build() returns the control; it is rebuilt on refresh."""
         self._stack.append(build)
-        self._set_body(build(), nav=False)
+        self.render()
 
     def back(self):
         if self._stack:
             self._stack.pop()
-        if self._stack:
-            self._set_body(self._stack[-1](), nav=False)
-        else:
-            self.show_current()
+        elif self.tab:
+            self.tab = 0
+        self.render()
 
     def refresh(self):
         """Redraw whatever is on screen (after a sync or an edit)."""
-        if self._stack:
-            self._set_body(self._stack[-1](), nav=False)
-        else:
-            self.show_current()
-
-    def _set_body(self, control, nav: bool):
-        self.body.content = control
-        self.page.navigation_bar = self.nav if nav else None
-        self.page.floating_action_button = getattr(control, "data", None) if nav and isinstance(
-            getattr(control, "data", None), ft.FloatingActionButton) else None
-        self.page.update()
+        self.render()
 
     def toast(self, text: str, error: bool = False):
         self.page.show_dialog(ft.SnackBar(
@@ -283,7 +306,6 @@ class App:
         self.api.sign_out()
         self.store.reset_family_data()
         self.tab = 0
-        self.nav.selected_index = 0
         self.show_current()
 
 
