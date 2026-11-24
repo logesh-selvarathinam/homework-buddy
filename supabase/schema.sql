@@ -74,6 +74,8 @@ create table if not exists public.exams (
   updated_at  timestamptz not null default now()
 );
 
+alter table public.families add column if not exists aliases jsonb not null default '{}'::jsonb;
+
 create index if not exists homework_family_updated on public.homework (family_id, updated_at);
 create index if not exists exams_family_updated    on public.exams (family_id, updated_at);
 create index if not exists children_family_updated on public.children (family_id, updated_at);
@@ -118,6 +120,10 @@ alter table public.exams          enable row level security;
 drop policy if exists families_read on public.families;
 create policy families_read on public.families
   for select using (public.is_family_member(id));
+
+drop policy if exists families_update on public.families;
+create policy families_update on public.families
+  for update using (public.is_family_member(id)) with check (public.is_family_member(id));
 
 drop policy if exists members_read on public.family_members;
 create policy members_read on public.family_members
@@ -181,6 +187,32 @@ revoke all on function public.create_family(text, text) from public, anon;
 revoke all on function public.join_family(text, text) from public, anon;
 grant execute on function public.create_family(text, text) to authenticated;
 grant execute on function public.join_family(text, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Cheap "has anything changed?" check (the app asks every few seconds)
+-- ---------------------------------------------------------------------------
+
+create or replace function public.family_version(fid uuid) returns text
+language sql stable set search_path = public as $$
+  select coalesce(max(t)::text, '') || '|' || (select count(*) from family_members where family_id = fid)
+  from (
+    select max(updated_at) t from children where family_id = fid
+    union all select max(updated_at) from homework where family_id = fid
+    union all select max(updated_at) from exams where family_id = fid
+  ) x;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Permissions. New Supabase projects no longer open new tables to signed-in
+-- users automatically, so grant them explicitly. Row Level Security above
+-- still limits every user to their own family's rows.
+-- ---------------------------------------------------------------------------
+
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.children, public.homework, public.exams to authenticated;
+grant select, update on public.families, public.family_members to authenticated;
+grant execute on function public.is_family_member(uuid) to authenticated;
+grant execute on function public.family_version(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Storage

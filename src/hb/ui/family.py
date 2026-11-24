@@ -98,6 +98,57 @@ def child_editor(app, child_id: str | None) -> ft.Control:
     ]))
 
 
+def aliases_view(app) -> ft.Control:
+    """Family's own spellings, e.g. "Mat" -> Maths, "Envi" -> EVS. Shared by all phones."""
+    aliases: dict = dict(app.store.get("aliases") or {})
+    subjects = sorted(set(parser.KNOWN_SUBJECTS) | {s for k in app.children() for s in k.get("subjects") or []})
+    spelling = ui.field("Teacher writes (e.g. Envi)", expand=True)
+    subject = ft.Dropdown(label="Means", options=[ft.DropdownOption(key=x, text=x) for x in subjects],
+                          border_radius=12, expand=True)
+
+    async def save(new: dict):
+        import asyncio
+        try:
+            await asyncio.to_thread(app.sync.save_aliases, new)
+        except Exception as ex:
+            app.toast(f"Needs internet to save: {ex}", True)
+            return False
+        app.refresh()
+        return True
+
+    async def add(e):
+        w = (spelling.value or "").strip().lower().rstrip(":")
+        if not w or not subject.value:
+            app.toast("Type the word and choose the subject", True)
+            return
+        if await save({**aliases, w: subject.value}):
+            app.toast(f"“{w}” now means {subject.value} on all phones")
+
+    def remove(word):
+        async def h(e):
+            await save({k: v for k, v in aliases.items() if k != word})
+        return h
+
+    rows = [ft.ListTile(title=ft.Text(f"{w}  →  {v}", weight=ft.FontWeight.W_600),
+                        trailing=ft.IconButton(ft.Icons.DELETE_OUTLINE, on_click=remove(w), tooltip="Remove"))
+            for w, v in sorted(aliases.items())]
+    return ft.Container(expand=True, bgcolor=ui.BG, content=ft.Column(spacing=0, expand=True, controls=[
+        ui.back_bar("Subject spellings", lambda e: app.back()),
+        ft.ListView(expand=True, padding=16, spacing=12, controls=[
+            ft.Text("If the teacher writes a subject in a way the app doesn't know, add it here. "
+                    "It is used on every phone when splitting messages.", size=13, color=ui.MUTED),
+            ui.card(ft.Column(spacing=10, controls=[
+                ft.Row([spelling]), ft.Row([subject]),
+                ft.Row([ui.primary_button("Add", add, icon=ft.Icons.ADD, expand=True)]),
+            ])),
+            ui.section_label(f"Saved ({len(aliases)})"),
+            ui.card(ft.Column(rows or [ft.Text("None yet. Maths, English, Tamil (தமிழ்), Hindi, EVS, Social, "
+                                                "Science are already known.", size=13, color=ui.MUTED)],
+                              spacing=0), padding=4),
+        ]),
+    ]))
+
+
 def view(app) -> ft.Control:
     code = app.store.get("join_code") or "------"
     me = app.api.user_id
@@ -188,6 +239,10 @@ def view(app) -> ft.Control:
                             subtitle=ft.Text("7 pm before homework and exams"),
                             trailing=ft.Switch(value=bool(app.store.get("reminders_on", False)),
                                                on_change=toggle_reminders)),
+                ft.ListTile(leading=ft.Icon(ft.Icons.SPELLCHECK, color=ui.ACCENT),
+                            title=ft.Text("Subject spellings"),
+                            subtitle=ft.Text("Teach the app how your school writes subjects"),
+                            on_click=lambda e: app.open(lambda: aliases_view(app))),
                 ft.ListTile(leading=ft.Icon(ft.Icons.SYSTEM_UPDATE, color=ui.ACCENT),
                             title=ft.Text("Check for updates"),
                             subtitle=ft.Text(f"Version {app.app_version} (build {app.app_build})"),

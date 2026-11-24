@@ -99,6 +99,8 @@ def test_all_views(tmp_path):
         ("exam_editor_new", lambda: exams.exam_editor(app, None)),
         ("child_editor", lambda: family.child_editor(app, c1["id"])),
         ("child_editor_new", lambda: family.child_editor(app, None)),
+        ("aliases", lambda: family.aliases_view(app)),
+        ("history", lambda: home.history_view(app)),
     ]:
         ctl = build()
         assert len(walk(ctl)) > 3, name
@@ -117,3 +119,24 @@ def test_review_screen(tmp_path):
     st2 = add._ReviewState(app, "", [])
     assert st2.items and st2.items[0]["subject"] == ""
     walk(add.review_view(app, st2))
+
+
+def test_family_spellings(tmp_path):
+    from hb import parser
+    r = parser.parse("Mat: page 5\nEnvi : read unit 3", {"Mat": "Maths", "envi": "EVS"})
+    assert [i.subject for i in r.items] == ["Maths", "EVS"]
+    app, *_ = make_app(tmp_path)
+    app.store.set("aliases", {"envi": "EVS"})
+    st = add._ReviewState(app, "Envi: read unit 3", [])
+    assert st.items[0]["subject"] == "EVS"
+
+
+def test_detail_siblings(tmp_path):
+    app, c1, c2, _ = make_app(tmp_path)
+    a = app.store.save("homework", {"child_id": c1["id"], "subject": "Tamil", "task": "write", "due_date": "2030-01-01",
+                                    "status": "pending", "source_text": "write"})
+    b = app.store.save("homework", {"child_id": c2["id"], "subject": "Tamil", "task": "write", "due_date": "2030-01-01",
+                                    "status": "pending", "source_text": "write"})
+    ctl = detail.detail_view(app, a["id"])
+    boxes = [c for c in walk(ctl) if isinstance(c, ft.Checkbox)]
+    assert boxes and boxes[0].visible and "Child 2" in boxes[0].label

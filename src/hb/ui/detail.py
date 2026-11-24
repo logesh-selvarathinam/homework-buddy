@@ -47,6 +47,16 @@ def detail_view(app, hw_id: str) -> ft.Control:
             ui.empty_state(ft.Icons.DELETE_OUTLINE, "This homework was deleted", "Maybe on another phone."),
         ]))
     child = app.child(h["child_id"])
+    # Same homework saved for the other child (same subject, date, text and message)
+    siblings = [x for x in app.store.rows("homework", "due_date=? AND subject=? AND id<>? AND child_id<>?",
+                                          (h["due_date"], h["subject"], hw_id, h["child_id"]))
+                if (x.get("task") or "") == (h.get("task") or "")
+                and (x.get("source_text") or "") == (h.get("source_text") or "")]
+    sib_names = " and ".join((app.child(x["child_id"]) or {}).get("name", "?") for x in siblings)
+    also = ft.Checkbox(label=f"Also change for {sib_names}", value=True, visible=bool(siblings))
+
+    def targets() -> list[str]:
+        return [hw_id] + ([x["id"] for x in siblings] if also.value else [])
 
     def set_status(s):
         def handler(e):
@@ -62,7 +72,8 @@ def detail_view(app, hw_id: str) -> ft.Control:
     task = ui.field("Homework", h.get("task") or "", multiline=True, min_lines=2, max_lines=6)
 
     def save_text(e):
-        app.store.update("homework", hw_id, task=task.value or "")
+        for t in targets():
+            app.store.update("homework", t, task=task.value or "")
         app.toast("Saved")
         app.changed()
 
@@ -71,7 +82,8 @@ def detail_view(app, hw_id: str) -> ft.Control:
             v = ev.control.value
             if v:
                 d = v.date() if isinstance(v, dt.datetime) else v
-                app.store.update("homework", hw_id, due_date=d.isoformat())
+                for t in targets():
+                    app.store.update("homework", t, due_date=d.isoformat())
                 app.changed()
         app.page.show_dialog(ft.DatePicker(
             value=dt.datetime.fromisoformat(h["due_date"]), first_date=dt.datetime(2024, 1, 1),
@@ -80,13 +92,15 @@ def detail_view(app, hw_id: str) -> ft.Control:
     def delete(e):
         def yes(ev):
             app.page.pop_dialog()
-            app.store.update("homework", hw_id, deleted=True)
+            for t in targets():
+                app.store.update("homework", t, deleted=True)
             app.back()
             app.changed()
 
         app.page.show_dialog(ft.AlertDialog(
             title=ft.Text("Delete this homework?"),
-            content=ft.Text("It will be removed from all phones."),
+            content=ft.Text("It will be removed from all phones."
+                            + (f" (and {sib_names}'s copy)" if siblings and also.value else "")),
             actions=[ft.TextButton("Cancel", on_click=lambda ev: app.page.pop_dialog()),
                      ft.TextButton("Delete", on_click=yes, style=ft.ButtonStyle(color="#B91C1C"))]))
 
@@ -112,6 +126,7 @@ def detail_view(app, hw_id: str) -> ft.Control:
                        spacing=6, wrap=True),
                 task,
                 *([ft.Row(tags, wrap=True, spacing=6)] if tags else []),
+                also,
                 ft.Row([ui.secondary_button("Save text", save_text, expand=True),
                         ui.secondary_button(ui.nice_date(h["due_date"]), pick_date,
                                             icon=ft.Icons.CALENDAR_MONTH, expand=True)]),

@@ -92,7 +92,7 @@ class _ReviewState:
         self.split(app)
 
     def split(self, app):
-        result = parser.parse(self.text or "")
+        result = parser.parse(self.text or "", app.store.get("aliases") or {})
         self.items = [
             {"subject": i.subject, "task": i.task, "language_level": i.language_level,
              "pages": i.pages, "unit": i.unit, "book": i.book, "action": i.action,
@@ -160,6 +160,39 @@ def review_view(app, st: _ReviewState) -> ft.Control:
         app.page.show_dialog(ft.DatePicker(
             value=dt.datetime.combine(st.due, dt.time()), first_date=dt.datetime(2024, 1, 1),
             last_date=dt.datetime(2030, 12, 31), on_change=changed))
+
+    async def read_photos(e):
+        import base64
+        btn = e.control
+        btn.disabled = True
+        btn.content = ft.Text("Reading… (10–30 seconds)", weight=ft.FontWeight.W_700)
+        ui.safe_update(btn)
+        texts, error = [], None
+        for _, local in st.photos:
+            try:
+                b64 = base64.b64encode(_read(local)).decode()
+                res = await asyncio.to_thread(app.api.call_function, "read-homework",
+                                              {"image": b64, "mime": "image/jpeg"})
+                if res.get("error"):
+                    error = res["error"]
+                elif res.get("text"):
+                    texts.append(res["text"])
+            except Exception as ex:
+                msg = str(ex)
+                if getattr(ex, "status", None) == 404 or "not found" in msg.lower():
+                    msg = "Photo reading isn't set up yet (see README → Photo reading)."
+                elif "connection" in msg.lower():
+                    msg = "Needs internet to read photos."
+                error = msg
+        if texts:
+            st.text = ((st.text or "").strip() + "\n" + "\n".join(texts)).strip()
+            st.split(app)
+            app.toast(f"Read {len(texts)} photo{'s' if len(texts) > 1 else ''} – check the subjects")
+        elif error:
+            app.toast(error, True)
+        else:
+            app.toast("No homework text found in the photo", True)
+        app.refresh()
 
     async def add_photo(e):
         st.photos += await _pick_photos(app)
@@ -274,6 +307,10 @@ def review_view(app, st: _ReviewState) -> ft.Control:
                 ft.Row([ui.secondary_button("Split into subjects", resplit, icon=ft.Icons.REFRESH, expand=True)]),
             ])),
             ui.section_label("Photos"), photo_row,
+            *([ft.Row([ft.FilledButton(
+                content=ft.Text("✨ Read homework from photo", weight=ft.FontWeight.W_700),
+                on_click=read_photos, expand=True, height=48, bgcolor="#7C3AED",
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)))])] if st.photos else []),
             ui.section_label("For · tap to pick one or both"), child_chips,
             auto_note,
             ui.section_label("Due"),

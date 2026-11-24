@@ -82,12 +82,12 @@ class ParseResult:
     unmatched: list[str] = field(default_factory=list)
 
 
-def _subject_of(prefix: str) -> tuple[str | None, str | None]:
+def _subject_of(prefix: str, aliases: dict[str, str] = ALIASES) -> tuple[str | None, str | None]:
     lang = _LANG.search(prefix)
     p = _LANG.sub(" ", prefix)
     p = re.sub(r"[^A-Za-z0-9_஀-௿ऀ-ॿ. ]", " ", p).strip().lower()
     p = re.sub(r"\s+", " ", p)
-    subject = ALIASES.get(p) or ALIASES.get(p.rstrip("."))
+    subject = aliases.get(p) or aliases.get(p.rstrip("."))
     return subject, (f"L{lang.group(1)}" if lang else None)
 
 
@@ -118,7 +118,9 @@ def _action_of(t: str) -> str | None:
     return None
 
 
-def parse(text: str) -> ParseResult:
+def parse(text: str, extra_aliases: dict[str, str] | None = None) -> ParseResult:
+    """extra_aliases: the family's own spellings, e.g. {"mat": "Maths"}."""
+    aliases = {**ALIASES, **{k.strip().lower(): v for k, v in (extra_aliases or {}).items() if k.strip()}}
     text = text.replace("\r", "").replace("’", "'")
     cls = _CLASS.search(text)
     drafts: list[list] = []  # [subject, level, task]
@@ -131,12 +133,12 @@ def parse(text: str) -> ParseResult:
         subject = level = rest = None
         m = _SUBJECT_COLON.match(line)
         if m:
-            subject, level = _subject_of(m.group(1))
+            subject, level = _subject_of(m.group(1), aliases)
             rest = m.group(2)
         if not subject:
             w = _SUBJECT_NO_COLON.match(line)
             if w:
-                subject, level = _subject_of(w.group(1))
+                subject, level = _subject_of(w.group(1), aliases)
                 rest = w.group(2)
         if subject:
             drafts.append([subject, level, (rest or "").strip()])

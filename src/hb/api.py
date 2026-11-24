@@ -114,12 +114,13 @@ class Supabase:
         if self.session and self.session.get("expires_at", 0) - 60 < time.time():
             self.refresh()
         extra = kw.pop("headers", None)
+        timeout = kw.pop("timeout", TIMEOUT)
         r = self.http.request(method, f"{self.url}{path}", headers=self._headers(extra),
-                              timeout=TIMEOUT, **kw)
+                              timeout=timeout, **kw)
         if r.status_code == 401 and self.session:
             self.refresh()
             r = self.http.request(method, f"{self.url}{path}", headers=self._headers(extra),
-                                  timeout=TIMEOUT, **kw)
+                                  timeout=timeout, **kw)
         if r.status_code >= 400:
             raise ApiError(_error_message(r), r.status_code)
         return r
@@ -137,6 +138,13 @@ class Supabase:
         r = self._request("POST", f"/rest/v1/{table}", json=rows, params={"on_conflict": "id"},
                           headers={"Prefer": "resolution=merge-duplicates,return=representation"})
         return r.json()
+
+    def patch(self, table: str, filters: dict, body: dict) -> None:
+        self._request("PATCH", f"/rest/v1/{table}", params=filters, json=body,
+                      headers={"Prefer": "return=minimal"})
+
+    def call_function(self, name: str, body: dict, timeout: int = 90) -> dict:
+        return self._request("POST", f"/functions/v1/{name}", json=body, timeout=timeout).json()
 
     # --------------------------------------------------------------- storage
     def upload(self, bucket: str, path: str, data: bytes, content_type: str = "image/jpeg") -> None:

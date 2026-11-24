@@ -79,6 +79,22 @@ Each phone checks the latest release when the app opens (and from **Family → C
 popup, and **Download & install** downloads the APK; tapping the downloaded file installs it
 over the old version with all data kept.
 
+## 6. Database updates and photo reading (Set up Supabase workflow)
+
+The **Set up Supabase** workflow applies `supabase/schema.sql` to your project and deploys
+the photo-reading function. It runs whenever files in `supabase/` change, or from
+**Actions → Set up Supabase → Run workflow**. Add these repository secrets once:
+
+| Secret | Where to get it |
+|---|---|
+| `SUPABASE_ACCESS_TOKEN` | supabase.com → your avatar → **Account preferences → Access Tokens → Generate new token** |
+| `GEMINI_API_KEY` | aistudio.google.com/apikey → **Create API key** (free tier is enough for a family) |
+
+Photo reading: in the app, attach a diary photo or screenshot and tap **✨ Read homework from photo**.
+The photo is sent to Google Gemini through your Supabase function; only signed-in family members
+can use it. Optional secret `GEMINI_MODEL` (default `gemini-2.5-flash`) is set in Supabase
+(Edge Functions → Secrets) if Google retires that model.
+
 ## Run on your PC (testing)
 
 ```bash
@@ -109,5 +125,4 @@ supabase/schema.sql    tables, security rules, buckets
 
 - Sharing straight from WhatsApp into the app isn't possible with Flet yet → copy the
   message, then **Add homework → Paste message**. Save WhatsApp photos to the gallery, then pick them.
-- Photos are attached, not read: reading handwriting (OCR) is not built yet.
-- Other phones see changes within ~20 seconds while the app is open, or as soon as it is opened.
+- Other phones see changes within ~5 seconds while the app is open, or as soon as it is opened.

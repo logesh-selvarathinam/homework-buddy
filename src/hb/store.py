@@ -164,6 +164,13 @@ class Store:
     def exams(self) -> list[dict]:
         return self.rows("exams", order="exam_date IS NULL, exam_date")
 
+    def has_pending(self) -> bool:
+        with self._lock:
+            for t in SYNC_TABLES:
+                if self.db.execute(f"SELECT 1 FROM {t} WHERE dirty=1 LIMIT 1").fetchone():
+                    return True
+            return bool(self.db.execute("SELECT 1 FROM uploads LIMIT 1").fetchone())
+
     # ----------------------------------------------------------------- sync
     def dirty_rows(self, table: str) -> list[dict]:
         with self._lock:

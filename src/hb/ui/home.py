@@ -115,7 +115,11 @@ def view(app) -> ft.Control:
                     ft.Text(t.strftime("%A, %d %b"), size=13, color=ui.MUTED),
                     ft.Text("HomeworkBuddy", size=24, weight=ft.FontWeight.W_800),
                 ]),
-                _sync_chip(app),
+                ft.Row(spacing=0, tight=True, controls=[
+                    _sync_chip(app),
+                    ft.IconButton(ft.Icons.HISTORY, tooltip="Past homework",
+                                  on_click=lambda e: app.open(lambda: history_view(app))),
+                ]),
             ]),
             *([_kid_selector(app, kids)] if kids else []),
         ]),
@@ -130,7 +134,8 @@ def view(app) -> ft.Control:
             ui.primary_button("Add a child", lambda e: app.open(lambda: child_editor(app, None)))))
     else:
         show_kid = kid is None
-        overdue = app.store.homework_overdue(t.isoformat(), kid)
+        two_weeks = (t - dt.timedelta(days=14)).isoformat()
+        overdue = [h for h in app.store.homework_overdue(t.isoformat(), kid) if h["due_date"] >= two_weeks]
         if overdue:
             items.append(ui.section_label(f"Overdue · {len(overdue)}"))
             items += [homework_card(app, h, show_kid) for h in overdue]
@@ -175,3 +180,26 @@ def view(app) -> ft.Control:
                 controls=items, spacing=10, padding=ft.Padding.only(left=16, right=16, top=14, bottom=100))),
         ]),
     )
+
+
+def history_view(app) -> ft.Control:
+    """Past homework (last 60 days), newest first."""
+    t = ui.today()
+    kid = None if app.kid_filter == "all" else app.kid_filter
+    rows = app.store.homework_between((t - dt.timedelta(days=60)).isoformat(),
+                                      (t - dt.timedelta(days=1)).isoformat(), kid)
+    rows.sort(key=lambda h: h["due_date"], reverse=True)
+    items: list[ft.Control] = []
+    last = None
+    for h in rows:
+        if h["due_date"] != last:
+            last = h["due_date"]
+            items.append(ft.Container(height=4))
+            items.append(ui.section_label(dt.date.fromisoformat(last).strftime("%a, %d %b")))
+        items.append(homework_card(app, h, kid is None))
+    if not items:
+        items.append(ui.empty_state(ft.Icons.HISTORY, "No past homework", "Homework from the last 60 days shows here."))
+    return ft.Container(expand=True, bgcolor=ui.BG, content=ft.Column(spacing=0, expand=True, controls=[
+        ui.back_bar("Past homework", lambda e: app.back()),
+        ft.ListView(expand=True, controls=items, spacing=10, padding=16),
+    ]))

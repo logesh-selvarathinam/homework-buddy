@@ -64,6 +64,10 @@ class Sync:
             pulled = self._pull()
             step = "loading family"
             self._pull_members()
+            try:
+                self.store.set("remote_version", self.remote_version())
+            except Exception:
+                pass  # older database without family_version: fine
             self.last_error = None
             return {"pushed": pushed, "pulled": pulled}
         except Exception as e:
@@ -117,7 +121,21 @@ class Sync:
                     break
         return n
 
+    def remote_version(self) -> str:
+        """Cheap check: changes whenever anything in the family changes."""
+        return self.api.rpc("family_version", {"fid": self.family_id}) or ""
+
+    def save_aliases(self, aliases: dict) -> None:
+        self.api.patch("families", {"id": f"eq.{self.family_id}"}, {"aliases": aliases})
+        self.store.set("aliases", aliases)
+
     def _pull_members(self) -> None:
+        fam = self.api.select("families", {"id": f"eq.{self.family_id}", "select": "*"})
+        if fam:
+            self.store.set("family_name", fam[0].get("name"))
+            self.store.set("join_code", fam[0].get("join_code"))
+            if "aliases" in fam[0]:
+                self.store.set("aliases", fam[0]["aliases"] or {})
         members = self.api.select("family_members", {
             "select": "user_id,display_name,joined_at",
             "family_id": f"eq.{self.family_id}",

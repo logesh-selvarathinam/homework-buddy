@@ -1,0 +1,87 @@
+name: Set up Supabase
+
+# Applies supabase/schema.sql and deploys the photo-reading function.
+# Runs when those files change on main, or from Actions → Set up Supabase → Run workflow.
+#
+# Secrets needed:
+#   SUPABASE_URL            (already there)
+#   SUPABASE_ACCESS_TOKEN   supabase.com → Account → Access Tokens → Generate new token
+#   GEMINI_API_KEY          aistudio.google.com/apikey  (only for photo reading)
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/**"]
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::warning::SUPABASE_ACCESS_TOKEN secret is not set – nothing to do."
+            echo "SKIP=1" >> "$GITHUB_ENV"; exit 0
+          fi
+          REF=$(python3 -c "import os,urllib.parse as u;print(u.urlparse(os.environ['SUPABASE_URL'].strip()).netloc.split('.')[0])")
+          echo "REF=$REF" >> "$GITHUB_ENV"
+          echo "Project ref: ${REF:0:4}…"
+
+      - name: Apply database schema
+        if: env.SKIP != '1'
+        run: |
+          python3 - <<'EOF'
+          import json, os, urllib.request
+          sql = open("supabase/schema.sql", encoding="utf-8").read()
+          req = urllib.request.Request(
+              f"https://api.supabase.com/v1/projects/{os.environ['REF']}/database/query",
+              data=json.dumps({"query": sql}).encode(), method="POST",
+              headers={"Authorization": f"Bearer {os.environ['SUPABASE_ACCESS_TOKEN']}",
+                       "Content-Type": "application/json"})
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  print("Schema applied:", r.status)
+          except urllib.error.HTTPError as e:
+              print("::error::Schema failed:", e.code, e.read().decode()[:800]); raise SystemExit(1)
+          EOF
+
+      - name: Check permissions and settings
+        if: env.SKIP != '1'
+        run: |
+          python3 - <<'EOF'
+          import json, os, urllib.request
+          H = {"Authorization": f"Bearer {os.environ['SUPABASE_ACCESS_TOKEN']}", "Content-Type": "application/json"}
+          base = f"https://api.supabase.com/v1/projects/{os.environ['REF']}"
+          def q(sql):
+              req = urllib.request.Request(base + "/database/query", data=json.dumps({"query": sql}).encode(), method="POST", headers=H)
+              return json.load(urllib.request.urlopen(req, timeout=60))
+          print("Grants for signed-in users:", q("""select table_name, string_agg(privilege_type, ',' order by privilege_type) p
+            from information_schema.role_table_grants where grantee='authenticated' and table_schema='public'
+            group by table_name order by 1"""))
+          print("Families / homework rows:", q("select (select count(*) from families) f, (select count(*) from homework) h, (select count(*) from family_members) m"))
+          try:
+              cfg = json.load(urllib.request.urlopen(urllib.request.Request(base + "/config/auth", headers=H), timeout=60))
+              print("Email sign-up on:", cfg.get("external_email_enabled"), "| sign-ups allowed:", not cfg.get("disable_signup"),
+                    "| confirm email OFF:", cfg.get("mailer_autoconfirm"))
+          except Exception as e:
+              print("Could not read auth settings:", e)
+          EOF
+
+      - uses: supabase/setup-cli@v1
+        if: env.SKIP != '1' && env.GEMINI_API_KEY != ''
+        with:
+          version: latest
+
+      - name: Deploy photo-reading function
+        if: env.SKIP != '1' && env.GEMINI_API_KEY != ''
+        run: |
+          supabase secrets set --project-ref "$REF" GEMINI_API_KEY="$GEMINI_API_KEY"
+          supabase functions deploy read-homework --project-ref "$REF" --use-api
+          echo "Photo reading deployed."

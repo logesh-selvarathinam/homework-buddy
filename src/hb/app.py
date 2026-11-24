@@ -13,7 +13,9 @@ from .store import Store
 from .sync import Sync
 from .ui import common as ui
 
-SYNC_EVERY_SECONDS = 20
+CHECK_EVERY_SECONDS = 4     # quick "anything new?" check
+FULL_SYNC_SECONDS = 60      # full sync at least this often
+RETRY_AFTER_ERROR = 30
 
 try:  # reminders need the flet-notifications extension (in pyproject.toml)
     import flet_notifications as ftn
@@ -167,10 +169,26 @@ class App:
         if getattr(self, "_loop_running", False):
             return
         self._loop_running = True
+        import time
+        last_full, last_try = 0.0, 0.0
         try:
             while self.ready:
-                await self.sync_now(False)
-                await asyncio.sleep(SYNC_EVERY_SECONDS)
+                now = time.time()
+                need = now - last_full > FULL_SYNC_SECONDS or self.store.has_pending()
+                if not need and self.sync_state == "idle":
+                    try:
+                        v = await asyncio.to_thread(self.sync.remote_version)
+                        need = v != self.store.get("remote_version")
+                    except Exception:
+                        need = now - last_full > 20  # older database or no internet
+                if self.sync_state in ("error", "offline") and now - last_try < RETRY_AFTER_ERROR:
+                    need = False
+                if need:
+                    last_try = now
+                    await self.sync_now(False)
+                    if self.sync_state == "idle":
+                        last_full = time.time()
+                await asyncio.sleep(CHECK_EVERY_SECONDS)
         finally:
             self._loop_running = False
 
