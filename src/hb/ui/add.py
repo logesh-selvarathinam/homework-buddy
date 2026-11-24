@@ -86,7 +86,7 @@ class _ReviewState:
         self.text = text
         self.photos = photos
         self.items: list[dict] = []
-        self.child_id: str | None = None
+        self.child_ids: list[str] = []
         self.auto_child = False
         self.due = parser.next_school_day(dt.date.today(), config.SCHOOL_DAYS)
         self.split(app)
@@ -102,9 +102,9 @@ class _ReviewState:
         kids = app.children()
         guess = parser.guess_child(result, kids)
         if guess:
-            self.child_id, self.auto_child = guess, True
+            self.child_ids, self.auto_child = [guess], True
         elif len(kids) == 1:
-            self.child_id = kids[0]["id"]
+            self.child_ids = [kids[0]["id"]]
         if not self.items and not self.text.strip():
             self.items.append(_blank_item())
 
@@ -118,7 +118,7 @@ _TEST_NAME = re.compile(r"(slip\s*test|unit\s*test|[a-d]\s*/\s*[a-d]\s*test|revi
 
 def review_view(app, st: _ReviewState) -> ft.Control:
     kids = app.children()
-    child = app.child(st.child_id)
+    child = app.child(st.child_ids[0]) if len(st.child_ids) == 1 else None
     subjects = sorted(set((child or {}).get("subjects") or []) | set(parser.KNOWN_SUBJECTS))
 
     raw = ui.field("Teacher's message", st.text, multiline=True, min_lines=3, max_lines=8)
@@ -135,8 +135,21 @@ def review_view(app, st: _ReviewState) -> ft.Control:
 
     def pick_child(cid):
         def h(e):
-            st.child_id, st.auto_child = cid, False
-            app.refresh()
+            if cid in st.child_ids:
+                st.child_ids.remove(cid)
+            else:
+                st.child_ids.append(cid)
+            st.auto_child = False
+            # update the buttons in place, so the screen doesn't jump to the top
+            for chip, k in zip(child_chips.controls, kids):
+                on = k["id"] in st.child_ids
+                col = k.get("color") or ui.INK
+                chip.bgcolor = col if on else ui.CARD
+                chip.border = ft.Border.all(1, col if on else "#D5D8E2")
+                chip.content.color = "#FFFFFF" if on else ui.INK
+            auto_note.visible = False
+            ui.safe_update(child_chips)
+            ui.safe_update(auto_note)
         return h
 
     def pick_date(e):
@@ -197,8 +210,8 @@ def review_view(app, st: _ReviewState) -> ft.Control:
         ]))
 
     def save(e):
-        if not st.child_id:
-            app.toast("Choose which child this is for", True)
+        if not st.child_ids:
+            app.toast("Choose which child this is for (you can pick both)", True)
             return
         items = [it for it in st.items if (it.get("subject") or "").strip()]
         if not items and not st.photos:
@@ -210,9 +223,9 @@ def review_view(app, st: _ReviewState) -> ft.Control:
         for storage_path, local in st.photos:
             app.store.queue_upload(storage_path, local)
         paths = [p for p, _ in st.photos]
-        for it in items:
+        for child_id, it in [(c, it) for c in st.child_ids for it in items]:
             app.store.save("homework", {
-                "family_id": fam, "child_id": st.child_id, "subject": it["subject"].strip(),
+                "family_id": fam, "child_id": child_id, "subject": it["subject"].strip(),
                 "language_level": it.get("language_level"), "task": (it.get("task") or "").strip(),
                 "pages": it.get("pages") or [], "unit": it.get("unit"), "book": it.get("book"),
                 "action": it.get("action"), "repeat_note": it.get("repeat_note"),
@@ -222,12 +235,13 @@ def review_view(app, st: _ReviewState) -> ft.Control:
             if it.get("is_test"):
                 m = _TEST_NAME.search(it.get("task") or "")
                 app.store.save("exams", {
-                    "family_id": fam, "child_id": st.child_id, "subject": it["subject"].strip(),
+                    "family_id": fam, "child_id": child_id, "subject": it["subject"].strip(),
                     "title": m.group(1).strip().capitalize() if m else "Test",
                     "exam_date": st.due.isoformat(), "portions": it.get("task"),
                     "image_path": paths[0] if paths else None,
                 })
-        app.toast(f"Saved {len(items)} item{'s' if len(items) > 1 else ''} · syncing to all phones")
+        who = " and ".join(app.child(c)["name"] for c in st.child_ids)
+        app.toast(f"Saved {len(items)} item{'s' if len(items) > 1 else ''} for {who} · syncing to all phones")
         app._stack.clear()
         app.go_tab(0)
         app.page.run_task(app.sync_now, False)
@@ -245,9 +259,11 @@ def review_view(app, st: _ReviewState) -> ft.Control:
                      on_click=add_photo, ink=True, tooltip="Add photo"),
     ])
 
+    auto_note = ft.Text("✓ Picked automatically from the subjects in the message", size=12, color="#166534",
+                        visible=bool(st.auto_child and st.child_ids))
     child_chips = ft.Row(wrap=True, spacing=8, controls=[
         ui.choice_chip(k["name"] + (f" · {k['class_name']}" if k.get("class_name") else ""),
-                       k["id"] == st.child_id, pick_child(k["id"]), k.get("color") or ui.INK) for k in kids])
+                       k["id"] in st.child_ids, pick_child(k["id"]), k.get("color") or ui.INK) for k in kids])
 
     return ft.Container(expand=True, bgcolor=ui.BG, content=ft.Column(spacing=0, expand=True, controls=[
         ui.back_bar("Check before saving", lambda e: app.back()),
@@ -258,9 +274,8 @@ def review_view(app, st: _ReviewState) -> ft.Control:
                 ft.Row([ui.secondary_button("Split into subjects", resplit, icon=ft.Icons.REFRESH, expand=True)]),
             ])),
             ui.section_label("Photos"), photo_row,
-            ui.section_label("For"), child_chips,
-            *([ft.Text("✓ Picked automatically from the subjects in the message", size=12, color="#166534")]
-              if st.auto_child and st.child_id else []),
+            ui.section_label("For · tap to pick one or both"), child_chips,
+            auto_note,
             ui.section_label("Due"),
             ft.Row([ui.secondary_button(ui.nice_date(st.due.isoformat()) + " · " + st.due.strftime("%a %d %b"),
                                         pick_date, icon=ft.Icons.CALENDAR_MONTH)]),

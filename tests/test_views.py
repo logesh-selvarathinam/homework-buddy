@@ -111,7 +111,7 @@ def test_review_screen(tmp_path):
     app, c1, c2, _ = make_app(tmp_path)
     msg = "Today's Home Fun\nMaths: Complete Pages 50 & 51 in WB.\nHindi L3 : Read and write Matra – Page 28"
     st = add._ReviewState(app, msg, [])
-    assert st.child_id == c2["id"] and st.auto_child
+    assert st.child_ids == [c2["id"]] and st.auto_child
     assert [i["subject"] for i in st.items] == ["Maths", "Hindi"]
     walk(add.review_view(app, st))
     st2 = add._ReviewState(app, "", [])
