@@ -20,9 +20,37 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check sign-up settings (read-only, uses the app's public key)
+        run: |
+          python3 - <<'EOF'
+          import json, os, urllib.request, urllib.parse as u
+          url = "https://" + u.urlparse(os.environ["SUPABASE_URL"].strip()).netloc
+          key = os.environ["SUPABASE_ANON_KEY"].strip()
+          def get(path, body=None):
+              req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode(),
+                                           headers={"apikey": key, "Content-Type": "application/json"},
+                                           method="GET" if body is None else "POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, r.read().decode()[:300]
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode()[:300]
+          code, body = get("/auth/v1/settings")
+          print("Auth settings HTTP", code)
+          if code == 200:
+              s = json.loads(body)
+              print("  email sign-in enabled :", s.get("external", {}).get("email"))
+              print("  new sign-ups allowed  :", not s.get("disable_signup"))
+              print("  confirm email is OFF  :", s.get("mailer_autoconfirm"))
+          else:
+              print("  ", body)
+          print("Schema check (family_version):", *get("/rest/v1/rpc/family_version", {"fid": "00000000-0000-0000-0000-000000000000"}))
+          EOF
 
       - name: Check secrets
         run: |
