@@ -170,12 +170,32 @@ class App:
                 self.toast("Please sign in again", True)
                 self.show_current()
             elif show_result:
-                self.toast(f"Sync failed: {e}", True)
+                self.show_sync_error()
         except Exception as e:  # no internet etc.
-            self.sync_state = "offline"
+            import requests
+            self.sync.last_error = self.sync.last_error or f"{type(e).__name__}: {e}"
+            self.sync_state = "offline" if isinstance(e, requests.ConnectionError) else "error"
             if show_result:
-                self.toast("No internet – changes are saved on this phone and will sync later", True)
+                self.show_sync_error()
             print("sync error:", e)
+
+    def show_sync_error(self):
+        err = self.sync.last_error or "Unknown error"
+
+        async def retry(e):
+            self.page.pop_dialog()
+            await self.sync_now(True)
+
+        self.page.show_dialog(ft.AlertDialog(
+            icon=ft.Icon(ft.Icons.WARNING_AMBER, color="#B91C1C"),
+            title=ft.Text("Sync problem"),
+            content=ft.Column(tight=True, spacing=8, controls=[
+                ft.Text("Your changes are safe on this phone. Error details:", size=13),
+                ft.Text(err, size=12, selectable=True, color="#7F1D1D"),
+            ]),
+            actions=[ft.TextButton("Close", on_click=lambda e: self.page.pop_dialog()),
+                     ft.FilledButton("Try again", on_click=retry, bgcolor=ui.ACCENT)],
+        ))
 
     # ------------------------------------------------------------ reminders
     async def update_reminders(self):

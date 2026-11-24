@@ -186,3 +186,13 @@ def test_reminders(tmp_path):
     ]
     assert rs[0].body == "Child 2: Hindi"
     assert len({r.id for r in rs}) == 3 and all(r.id < 2**31 for r in rs)
+
+
+def test_bullets_and_no_subject_line():
+    r = parser.parse("* Maths : completepgno 52, 53 in WB.\n* தமிழ்: ப எண் 106, முடித்து வரவும்")
+    assert [i.task[:8] for i in r.items] == ["complete", "ப எண் 10"]
+    r = parser.parse("write  kaa இலிருந்து naa க்கு எழுது")
+    assert len(r.items) == 1 and r.items[0].subject == "Tamil" and r.items[0].action == "Write"
+    assert r.items[0].task.startswith("write")
+    r = parser.parse("Read the story aloud")
+    assert r.items[0].subject == "" and r.items[0].task == "Read the story aloud"

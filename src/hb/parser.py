@@ -44,6 +44,10 @@ _BOOKS = [
     (re.compile(r"note\s*book|\bNB\b", re.I), "Notebook"),
 ]
 
+_BULLET = re.compile(r"^(?:[*•\-–·>]+|\d{1,2}[.)])\s*")
+_TAMIL = re.compile(r"[\u0B80-\u0BFF]")
+_DEVANAGARI = re.compile(r"[\u0900-\u097F]")
+
 KNOWN_SUBJECTS = sorted(set(ALIASES.values()))
 
 
@@ -121,7 +125,7 @@ def parse(text: str) -> ParseResult:
     unmatched: list[str] = []
 
     for raw in text.split("\n"):
-        line = raw.strip()
+        line = _BULLET.sub("", raw.strip())
         if not line or _HEADER.match(line):
             continue
         subject = level = rest = None
@@ -140,6 +144,14 @@ def parse(text: str) -> ParseResult:
             drafts[-1][2] += " " + line
         else:
             unmatched.append(line)
+
+    if not drafts and unmatched:
+        # No "Subject:" line (e.g. "write kaa இலிருந்து naa க்கு எழுது"):
+        # keep the whole message as one item, guessing the subject from the script.
+        whole = " ".join(unmatched)
+        guess = "Tamil" if _TAMIL.search(whole) else "Hindi" if _DEVANAGARI.search(whole) else ""
+        drafts.append([guess, None, whole])
+        unmatched = []
 
     items = []
     for subject, level, t in drafts:

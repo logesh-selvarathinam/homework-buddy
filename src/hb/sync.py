@@ -53,15 +53,21 @@ class Sync:
             return {}
         if not self._lock.acquire(blocking=False):
             return {}  # a sync is already running
+        step = "starting"
+        self.last_error = None
         try:
+            step = "sending changes"
             pushed = self._push()
+            step = "uploading photos"
             self._upload_images()
+            step = "getting changes"
             pulled = self._pull()
+            step = "loading family"
             self._pull_members()
             self.last_error = None
             return {"pushed": pushed, "pulled": pulled}
-        except (ApiError, requests.RequestException) as e:
-            self.last_error = str(e)
+        except Exception as e:
+            self.last_error = f"While {step}: {e}" + (f" (HTTP {e.status})" if getattr(e, "status", None) else "")
             raise
         finally:
             self._lock.release()

@@ -140,8 +140,13 @@ class Supabase:
 
     # --------------------------------------------------------------- storage
     def upload(self, bucket: str, path: str, data: bytes, content_type: str = "image/jpeg") -> None:
-        self._request("POST", f"/storage/v1/object/{bucket}/{path}", data=data,
-                      headers={"Content-Type": content_type, "x-upsert": "true"})
+        try:
+            self._request("POST", f"/storage/v1/object/{bucket}/{path}", data=data,
+                          headers={"Content-Type": content_type})
+        except ApiError as e:
+            if e.status == 409 or "exists" in str(e).lower() or "duplicate" in str(e).lower():
+                return  # uploaded before; file names are unique
+            raise
 
     def download(self, bucket: str, path: str) -> bytes:
         return self._request("GET", f"/storage/v1/object/authenticated/{bucket}/{path}").content
